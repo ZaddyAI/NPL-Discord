@@ -63,7 +63,7 @@ class HelpCommand(commands.HelpCommand):
         description=f"Command not found with the name `{string}`.",
         color=discord.Color.red()
     )
-    
+
     embed.set_author(name="Command Not Found", icon_url=self.context.bot.user.avatar.url)
     embed.set_footer(text=f"Requested By {ctx.author}",
                        icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url)
@@ -104,11 +104,11 @@ class HelpCommand(commands.HelpCommand):
               " <:Autoreact:1330393356198477824> Autoreact & responder\n"
               " <:autorole:1330393358904066148> Autorole & Invc\n"
               " <:Extra:1330393380810657843> Fun & AI Image Gen\n"
-              " <:ignore:1330398849101205524> Ignore Channels\n" 
+              " <:ignore:1330398849101205524> Ignore Channels\n"
               "<:logging:1392124867872165969> Advance Logging\n"
               "<:InviteTracker:1392125185817051239> Invite Tracker\n"
     )
-    
+
     embed.add_field(
         name=" <:filder:1330393371650297887> __**My Features**__",
         value=">>> \n <:security:1330393362305515560> Security\n"
@@ -117,15 +117,15 @@ class HelpCommand(commands.HelpCommand):
               " <:music:1330393374271737896> Music\n"
               " <:Moderation:1330393377203556412> Moderation\n"
               " <:customrole:1330393383830683710> Customrole\n"
-              " <:giveaway:1330395924299644980> Giveaway\n" 
+              " <:giveaway:1330395924299644980> Giveaway\n"
               '<:ticket:1355527347335467191> Ticket\n'
               "<:VanityRoles:1392125176644108359> Vanityroles\n"
     )
 
     embed.set_footer(
-      text=f"Requested By {self.context.author} | [Support](discord.gg/codexdev)",
+      text=f"Requested By {self.context.author} | [Support](https://discord.com/invite/ZEGw68gn5F)",
     )
-    
+
     view = vhelp.View(mapping=mapping, ctx=self.context, homeembed=embed, ui=2)
     await ctx.reply(embed=embed, view=view)
 

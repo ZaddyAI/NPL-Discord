@@ -1,4 +1,4 @@
-from utils import getConfig  
+from utils import getConfig
 import discord
 from discord.ext import commands
 from utils.Tools import get_ignore_data
@@ -16,7 +16,7 @@ class Mention(commands.Cog):
             cursor = await db.execute("SELECT 1 FROM guild_blacklist WHERE guild_id = ?", (message.guild.id,))
             if await cursor.fetchone():
                 return True
-                
+
             cursor = await db.execute("SELECT 1 FROM user_blacklist WHERE user_id = ?", (message.author.id,))
             if await cursor.fetchone():
                 return True
@@ -41,7 +41,7 @@ class Mention(commands.Cog):
                     return
 
         guild_id = message.guild.id
-        data = await getConfig(guild_id) 
+        data = await getConfig(guild_id)
         prefix = data["prefix"]
 
         if self.bot.user in message.mentions:
@@ -57,7 +57,7 @@ class Mention(commands.Cog):
                 buttons = [
                     discord.ui.Button(label="Invite", style=discord.ButtonStyle.link, url="https://discord.com/oauth2/authorize?client_id=1327994903048884288&permissions=8&integration_type=0&scope=bot+applications.commands"),
                     discord.ui.Button(label="Web", style=discord.ButtonStyle.link, url="https://runx.news"),
-                    discord.ui.Button(label="Support", style=discord.ButtonStyle.link, url="https://discord.com/invite/codexdev"),
+                    discord.ui.Button(label="Support", style=discord.ButtonStyle.link, url="https://discord.com/invite/ZEGw68gn5F"),
                 ]
 
                 view = discord.ui.View()
