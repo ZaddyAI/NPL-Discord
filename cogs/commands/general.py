@@ -130,7 +130,7 @@ class General(commands.Cog):
       await ctx.send(embed=embed, view=view)
     except Exception as e:
       print(f"Error: {e}")
-      
+
   @commands.hybrid_command(
     name="servericon",
     help="Get the server icon",
@@ -214,7 +214,7 @@ class General(commands.Cog):
     await msg.add_reaction("<:tick:1327829594954530896>")
     await msg.add_reaction("<:CrossIcon:1327829124894429235>")
 
-  
+
   @commands.command(name="hack",
     help="hack someone's discord account",
     usage="Hack <member>")
@@ -232,11 +232,11 @@ class General(commands.Cog):
     random_chars = random.choices(all_chars, k=remaining_length)
 
     password = stringg + ''.join(random_chars)
-    
+
     lund = await ctx.send(f"Processing to Hack {member.mention}...")
     await asyncio.sleep(2)
     random_pass = random.choice(lawda)
-    
+
     random_pass2 = ''.join(random.choices(string.ascii_letters + string.digits, k=3))
     embed = discord.Embed(
   title=f"**Hacked {member.display_name}!**",
@@ -425,7 +425,7 @@ class General(commands.Cog):
                       inline=False)
     await ctx.reply(embed=embed, mention_author=True)
 
-  
+
   @commands.command(name="invite",
                            aliases=['invite-bot'],
                            description="Get Support & Bot invite link!")
@@ -433,9 +433,9 @@ class General(commands.Cog):
   @ignore_check()
   @commands.cooldown(1, 3, commands.BucketType.user)
   async def invite(self, ctx: commands.Context):
-    embed = discord.Embed(title="Axon X Invite & Support!",
+    embed = discord.Embed(title="NPL Invite & Support Link",
       description=
-      f"> <:icons_plus:1328966531140288524> **[Axon X - Invite Bot](https://discord.com/oauth2/authorize?client_id=1313160406117646417&permissions=8&integration_type=0&scope=bot+applications.commands)**\n> <:icons_plus:1328966531140288524> **[Axon X - Support](https://discord.gg/codexdev)**",
+      f"> <:icons_plus:1328966531140288524> **[NPL - Invite Bot](https://discord.com/oauth2/authorize?client_id=1313160406117646417&permissions=8&integration_type=0&scope=bot+applications.commands)**\n> <:icons_plus:1328966531140288524> **[NPL - Support](https://discord.com/invite/ZEGw68gn5F)**",
       color=0x0ba7ff)
 
     embed.set_footer(text=f"Requested by {ctx.author.name}",
@@ -448,10 +448,9 @@ class General(commands.Cog):
     )
     support = Button(label='Support',
                     style=discord.ButtonStyle.link,
-                    url=f'https://discord.gg/codexdev')
+                    url=f'https://discord.com/invite/ZEGw68gn5F')
     view = View()
     view.add_item(invite)
     view.add_item(support)
-    
-    await ctx.send(embed=embed, view=view)
 
+    await ctx.send(embed=embed, view=view)

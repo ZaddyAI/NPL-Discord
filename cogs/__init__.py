@@ -53,7 +53,7 @@ from .commands.filters import FilterCog
 from .commands.owner2 import Global
 from .commands.qr import QR
 from .commands.vanityroles import VanityRoles
-from .commands.reactionroles import ReactionRoles 
+from .commands.reactionroles import ReactionRoles
 #from .commands.InviteTracker import InviteTracker
 from .commands.messages import Messages
 from .commands.fastgreet import FastGreet
@@ -76,15 +76,15 @@ from .events.autoreact import AutoReactListener
 from .axon.antinuke import _antinuke
 from .axon.extra import _extra
 from .axon.general import _general
-from .axon.automod import _automod 
+from .axon.automod import _automod
 from .axon.moderation import _moderation
 from .axon.music import _music
 from .axon.fun import _fun
 from .axon.games import _games
 from .axon.ignore import _ignore
 from .axon.server import _server
-from .axon.voice import _voice 
-from .axon.welcome import _welcome 
+from .axon.voice import _voice
+from .axon.welcome import _welcome
 from .axon.giveaway import _giveaway
 from .axon.ticket import _ticket
 #from .axon.vanityroles import Vanityroles69999
@@ -113,7 +113,7 @@ from .antinuke.antiwebhook import AntiWebhookUpdate
 from .antinuke.antiwebhookcr import AntiWebhookCreate
 from .antinuke.antiwebhookdl import AntiWebhookDelete
 
-#Extra Optional Events 
+#Extra Optional Events
 
 #from .antinuke.antiemocr import AntiEmojiCreate
 #from .antinuke.antiemodl import AntiEmojiDelete
@@ -152,13 +152,13 @@ async def setup(bot: axon):
         Help, General, Moderation, Automod, Welcomer, Fun, Games, Extra,
         Voice, Owner, Customrole, afk, Embed, Media, Ignore, TicketSystem, Logging,
         Invcrole, Steal, Ship, Timer,
-        Blacklist, Block, Nightmode, Badges, Antinuke, Whitelist, 
+        Blacklist, Block, Nightmode, Badges, Antinuke, Whitelist,
         Unwhitelist, Extraowner, Map, Blackjack, Slots,
         AutoBlacklist, Guild, Errors, Autorole2, Autorole, greet, AutoResponder,
         Mention, AutoRole, React, AntiMemberUpdate, AntiBan, AntiBotAdd,
         AntiChannelCreate, AntiChannelDelete, AntiChannelUpdate, AntiEveryone, AntiGuildUpdate,
         AntiIntegration, AntiKick, AntiPrune, AntiRoleCreate, AntiRoleDelete,
-        AntiRoleUpdate, AntiWebhookUpdate, AntiWebhookCreate, 
+        AntiRoleUpdate, AntiWebhookUpdate, AntiWebhookCreate,
         AntiWebhookDelete, AntiSpam, AntiCaps, AntiLink, AntiInvite, AntiMassMention, Music, Stats, Emergency, Status, NoPrefix, FilterCog, AutoReaction, AutoReactListener, Ban, Unban, Mute, Unmute, Lock, Unlock, Hide, Unhide, Kick, Warn, Role, Message, Moderation, TopCheck, Snipe, Global, QR, VanityRoles, ReactionRoles, Messages, TranslateCog, FastGreet, Jail, #InviteTracker,
     ]
 
@@ -217,26 +217,26 @@ async def setup(bot: axon):
   await bot.add_cog(_antinuke(bot))
   await bot.add_cog(_extra(bot))
   await bot.add_cog(_general(bot))
-  await bot.add_cog(_automod(bot))  
+  await bot.add_cog(_automod(bot))
   await bot.add_cog(_moderation(bot))
   await bot.add_cog(_music(bot))
   await bot.add_cog(_fun(bot))
   await bot.add_cog(_games(bot))
   await bot.add_cog(_ignore(bot))
   await bot.add_cog(_server(bot))
-  await bot.add_cog(_voice(bot))   
+  await bot.add_cog(_voice(bot))
   await bot.add_cog(_welcome(bot))
   await bot.add_cog(_giveaway(bot))
   await bot.add_cog(_ticket(bot))
   await bot.add_cog(Loggingdrop(bot))
   await bot.add_cog(_vanity(bot))
   await bot.add_cog(_inviteTracker(bot))
-  
 
 
 
 
-  
+
+
   await bot.add_cog(AutoBlacklist(bot))
   await bot.add_cog(Guild(bot))
   await bot.add_cog(Errors(bot))
@@ -271,7 +271,7 @@ async def setup(bot: axon):
   await bot.add_cog(AntiWebhookDelete(bot))
 
 
-#Extra Optional Events 
+#Extra Optional Events
 
   #await bot.add_cog(AntiEmojiCreate(bot))
   #await bot.add_cog(AntiEmojiDelete(bot))
@@ -307,8 +307,8 @@ async def setup(bot: axon):
   await bot.add_cog(Moderation(bot))
   await bot.add_cog(TopCheck(bot))
   await bot.add_cog(Snipe(bot))
-  
+
 
   for cog in cogs_to_load:
     print(Fore.BLUE + Style.BRIGHT + f"Loaded cog: {cog.__name__}")
-  print(Fore.BLUE + Style.BRIGHT + "All Axon Cogs loaded successfully.")
+  print(Fore.BLUE + Style.BRIGHT + "All NPL Cogs loaded successfully.")

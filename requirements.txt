@@ -29,9 +29,9 @@ pyttsx3
 PyYAML
 Requests
 openai
-duckduckgo-search==6.3.6
-pillow==11.0.0
+duckduckgo-search
+pillow
 colorama
 chess
 python-dateutil
-deep-translator==1.11.4
+deep-translator

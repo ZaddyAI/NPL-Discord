@@ -59,7 +59,7 @@ class SpotifyAPI:
                     return await response.json()
         raise Exception("Exceeded max retries to fetch Spotify data")
 
-    
+
     async def get_track(self, track_id):
         return await self.get(f"tracks/{track_id}")
 
@@ -111,7 +111,7 @@ class PlatformSelectView(View):
 
         await self.ctx.send(embed=embed, view=SearchResultView(self.ctx, top_results))
 
-    
+
 
 class SearchResultView(View):
     def __init__(self, ctx, results):
@@ -180,9 +180,9 @@ class MusicControlView(View):
 
         if guild_id in track_histories and len(track_histories[guild_id]) > 1:
             track_histories[guild_id].pop()
-            previous_track = track_histories[guild_id][-1] 
+            previous_track = track_histories[guild_id][-1]
 
-            player = self.player 
+            player = self.player
             vc = self.ctx.voice_client
 
             if player.playing:
@@ -200,7 +200,7 @@ class MusicControlView(View):
             await self.player.pause(False)
 
             await self.player.channel.edit(status=f"<:icons_pause:1327829480835780609> Playing: {self.player.current.title}")
-            button.emoji = "<:musicstop_icons:1327829536053923934>" 
+            button.emoji = "<:musicstop_icons:1327829536053923934>"
             await interaction.response.edit_message(view=self)
 
         elif self.player.playing:
@@ -284,15 +284,15 @@ class Music(commands.Cog):
         self.client = client
         self.client.loop.create_task(self.connect_nodes())
         self.client.loop.create_task(self.monitor_inactivity())
-        
-        self.inactivity_timeout = 120 
-        self.player_inactivity = {}  
+
+        self.inactivity_timeout = 120
+        self.player_inactivity = {}
 
     async def monitor_inactivity(self):
         while True:
             for guild in self.client.guilds:
-                await self.check_inactivity(guild.id) 
-            await asyncio.sleep(60) 
+                await self.check_inactivity(guild.id)
+            await asyncio.sleep(60)
 
     async def check_inactivity(self, guild_id):
         guild = self.client.get_guild(guild_id)
@@ -324,10 +324,10 @@ class Music(commands.Cog):
                     ended.set_footer(text="Thanks for choosing Axon X!")
                     support = Button(label='Support',
                                  style=discord.ButtonStyle.link,
-                        url=f'https://discord.gg/codexdev')
+                        url=f'https://discord.com/invite/ZEGw68gn5F')
                     vote = Button(label='Vote',
                                  style=discord.ButtonStyle.link,
-                        url=f'https://top.gg/bot/11441796597355772640/vote')
+                        url=f'comming soon')
                     view = View()
                     view.add_item(support)
                     view.add_item(vote)
@@ -346,7 +346,7 @@ class Music(commands.Cog):
         if track.artwork:
             template_path = 'data/pictures/player.png'
             font_path = 'utils/arial.ttf'
-            font = ImageFont.truetype(font_path, 40) 
+            font = ImageFont.truetype(font_path, 40)
 
             base_img = Image.open(template_path).convert("RGBA")
 
@@ -361,7 +361,7 @@ class Music(commands.Cog):
                         draw = ImageDraw.Draw(mask)
                         draw.ellipse((0, 0, 220, 220), fill=255)
                         track_img.putalpha(mask)
-                        base_img.paste(track_img, (15, 125 - 85), track_img) 
+                        base_img.paste(track_img, (15, 125 - 85), track_img)
 
             draw = ImageDraw.Draw(base_img)
             draw.text((240, 50), track.title, font=font, fill="white")
@@ -410,10 +410,10 @@ class Music(commands.Cog):
                 ended.set_author(name="Queue Ended", icon_url=self.client.user.avatar.url)
                 support = Button(label='Support',
                              style=discord.ButtonStyle.link,
-                    url=f'https://discord.gg/codexdev')
+                    url=f'https://discord.com/invite/ZEGw68gn5F')
                 vote = Button(label='Vote',
                              style=discord.ButtonStyle.link,
-                    url=f'https://top.gg/bot/1144179659735572640/vote')
+                    url=f'comming soon')
                 view = View()
                 view.add_item(support)
                 view.add_item(vote)
@@ -432,8 +432,8 @@ class Music(commands.Cog):
 
         vc = ctx.voice_client or await ctx.author.voice.channel.connect(cls=wavelink.Player)
         vc.ctx = ctx
-        
-        
+
+
         if vc.playing:
             if ctx.voice_client and ctx.voice_client.channel != ctx.author.voice.channel:
                 await ctx.send(embed=discord.Embed(description=f"You must be connected to {ctx.voice_client.channel.mention} to play.", color=0x000000))
@@ -446,9 +446,9 @@ class Music(commands.Cog):
             await self.handle_spotify_link(ctx, vc, query, "playlist")
         elif re.match(SPOTIFY_ALBUM_REGEX, query):
             await self.handle_spotify_link(ctx, vc, query, "album")
-        
+
             return"""
-            
+
         tracks = await wavelink.Playable.search(query)
         if not tracks:
             await ctx.send(embed=discord.Embed(description="No results found.", color=0x000000))
@@ -472,18 +472,18 @@ class Music(commands.Cog):
            # await interaction.response.defer()
 
 
-    
+
     async def handle_spotify_link(self, ctx, vc, link, type_):
         try:
             if type_ == "track":
                 track_id = re.search(SPOTIFY_TRACK_REGEX, link).group(1)
                 track_info = await spotify_api.get_track(track_id)
 
-                
+
                 title = track_info['name']
                 author = ', '.join(artist['name'] for artist in track_info['artists'])
 
-                
+
                 search_query = f"{title} by {author}"
                 search_results = await wavelink.Playable.search(search_query, source=wavelink.enums.TrackSource.YouTube)
 
@@ -499,10 +499,10 @@ class Music(commands.Cog):
                     await self.display_player_embed(vc, track, ctx)
 
                 #await self.display_player_embed(vc, track, ctx)
-                
+
             elif type_ == "playlist":
                 lmao = await ctx.send("⏳ Processing to add tracks from the playlist, this may take a while...")
-                
+
                 playlist_id = re.search(SPOTIFY_PLAYLIST_REGEX, link).group(1)
                 playlist_info = await spotify_api.get(f"playlists/{playlist_id}")
                 tracks = playlist_info.get("tracks", {}).get("items", [])
@@ -526,7 +526,7 @@ class Music(commands.Cog):
 
                 await ctx.send(embed=discord.Embed(description=f"<:icons_plus:1328966531140288524> Added **{c}** of **{playlist_length}** tracks from **playlist** **[{playlist_info['name']}](https://discord.gg/mZBtu84xGH)** to the queue.", color=0x000000))
                 await lmao.delete()
-                
+
                 if not vc.playing:
                     next_track = await vc.queue.get_wait()
                     await vc.play(next_track)
@@ -558,7 +558,7 @@ class Music(commands.Cog):
                     await vc.play(next_track)
                     await self.display_player_embed(vc, next_track, ctx)
 
-                
+
         except Exception as e:
             await ctx.send(f"An error occurred while processing the Spotify link: {e}")
 
@@ -574,7 +574,7 @@ class Music(commands.Cog):
     @ignore_check()
     @commands.cooldown(1, 3, commands.BucketType.user)
     async def play(self, ctx: commands.Context, *, query: str):
-        
+
         await self.play_source(ctx, query)
 
 
@@ -610,8 +610,8 @@ class Music(commands.Cog):
             return
 
         track = vc.current
-        position = vc.position / 1000  
-        length = track.length / 1000  
+        position = vc.position / 1000
+        length = track.length / 1000
 
         progress_bar = self.create_progress_bar(position, length, length=10)
         position_str = f"{int(position // 60)}:{int(position % 60):02}"
@@ -941,7 +941,7 @@ class Music(commands.Cog):
             return
 
         track = vc.current
-        target_position = int(track.length * (percentage / 100))  
+        target_position = int(track.length * (percentage / 100))
         await vc.seek(target_position)
 
         await ctx.send(embed=discord.Embed(description=f"Seeked to {percentage}% of the current track.", color=0x1DB954))

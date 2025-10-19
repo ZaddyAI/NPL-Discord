@@ -29,7 +29,7 @@ class TimeSelect(Select):
         self.db_path = db_path
         self.author = author
 
-        
+
         self.options = [
             SelectOption(label="10 Minutes", description="Trial for 10 minutes", value="10m"),
             SelectOption(label="1 Week", description="No prefix for 1 week", value="1w"),
@@ -46,7 +46,7 @@ class TimeSelect(Select):
         if interaction.user != self.author:
             return await interaction.response.send_message("You can't select this option.", ephemeral=True)
 
-        
+
         duration_mapping = {
             "10m": timedelta(minutes=10),
             "1w": timedelta(weeks=1),
@@ -75,7 +75,7 @@ class TimeSelect(Select):
         expiry_text = "**Lifetime**" if selected_duration == "lifetime" else f"{expiry_time.strftime('%Y-%m-%d %H:%M:%S')} UTC"
         expiry_timestamp = "None (Permanent)" if selected_duration == "lifetime" else f"<t:{int(expiry_time.timestamp())}:f>"
 
-        
+
         guild = interaction.client.get_guild(699587669059174461)
         if guild:
             member = guild.get_member(self.user.id)
@@ -84,7 +84,7 @@ class TimeSelect(Select):
                 if role:
                     await member.add_roles(role, reason="No prefix added")
 
-            
+
 
         log_channel = interaction.client.get_channel(1376174251174002799)
         if log_channel:
@@ -95,9 +95,9 @@ class TimeSelect(Select):
             )
             embed.set_thumbnail(url=self.user.avatar.url if self.user.avatar else self.user.default_avatar.url)
             await log_channel.send("<#1376174251174002799>",embed=embed)
-            
 
-        
+
+
         embed = discord.Embed(description=f"**Added Global No Prefix**:\n**User**: **[{self.user}](https://discord.com/users/{self.user.id})**\n**User Mention**: {self.user.mention}\n**User ID**: {self.user.id}\n\n__**Additional Info**__:\n **Added By**: **[{self.author.display_name}](https://discord.com/users/{self.author.id})**\n<a:timer:1329404677820911697> **Expiry Time:** {expiry_text}\n **Timestamp:** {expiry_timestamp}", color=0x000000)
         embed.set_author(name="Added No Prefix", icon_url="https://cdn.discordapp.com/icons/1166303696263585852/eeb00b2cf541438e88cdf842394c5b30.png?size=1024")
         embed.set_footer(text="DM will be sent to the user in case No prefix is expired.")
@@ -124,25 +124,25 @@ class NoPrefix(commands.Cog):
 
     async def setup_database(self):
         async with aiosqlite.connect(self.db_path) as db:
-            
+
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS np (
                     id INTEGER PRIMARY KEY
                 )
             ''')
-            
 
-            
+
+
             async with db.execute("PRAGMA table_info(np);") as cursor:
                 columns = [info[1] for info in await cursor.fetchall()]
 
-            
+
             if "expiry_time" not in columns:
                 await db.execute('''
                     ALTER TABLE np ADD COLUMN expiry_time TEXT NULL;
                 ''')
 
-            
+
             await db.execute('''
                 UPDATE np
                 SET expiry_time = NULL
@@ -201,18 +201,18 @@ class NoPrefix(commands.Cog):
                                 if role in member.roles:
                                     await member.remove_roles(role)
 
-                        
-                                    
+
+
                         embed = discord.Embed(
                             description=f"<:icons_warning:1327829522573430864> Your No Prefix status has **Expired**. You will now require the prefix to use commands.",
                             color=0x000000
                         )
                         embed.set_author(name="No Prefix Expired", icon_url=user.avatar.url if user.avatar else user.default_avatar.url)
-                        
+
                         embed.set_footer(text="Axon X  - No Prefix, Join support to regain access.")
                         support = Button(label='Support',
                     style=discord.ButtonStyle.link,
-                    url=f'https://discord.gg/codexdev')
+                    url=f'https://discord.com/invite/ZEGw68gn5F')
                         view = View()
                         view.add_item(support)
 
@@ -255,7 +255,7 @@ class NoPrefix(commands.Cog):
                     ctx=ctx)
                 await paginator.paginate()
 
-    
+
 
     @_np.command(name="add", help="Add user to no-prefix with time options")
     @commands.check(is_owner_or_staff)
@@ -272,7 +272,7 @@ class NoPrefix(commands.Cog):
         view = TimeSelectView(user, self.db_path, ctx.author)
         embed = discord.Embed(title="Select No Prefix Duration", description="**Choose the duration for how long no-prefix should be enabled for this user:**", color=0x000000)
         await ctx.reply(embed=embed, view=view)
-        
+
 
     @_np.command(name="remove", help="Remove user from no-prefix")
     @commands.check(is_owner_or_staff)
@@ -286,11 +286,11 @@ class NoPrefix(commands.Cog):
                 await ctx.reply(embed=embed)
                 return
 
-            
+
             await db.execute("DELETE FROM np WHERE id = ?", (user.id,))
             await db.commit()
 
-        
+
         guild = ctx.bot.get_guild(699587669059174461)
         if guild:
             member = guild.get_member(user.id)
@@ -299,7 +299,7 @@ class NoPrefix(commands.Cog):
                 if role in member.roles:
                     await member.remove_roles(role)
 
-        
+
         embed = discord.Embed(
                 description=(
                                     f"**User**: [{user}](https://discord.com/users/{user.id})\n"
@@ -312,7 +312,7 @@ class NoPrefix(commands.Cog):
         embed.set_author(name="Removed No Prefix")
         await ctx.reply(embed=embed)
 
-        
+
         log_channel = ctx.bot.get_channel(1299513624477306974)
         if log_channel:
             embed_log = discord.Embed(
@@ -330,7 +330,7 @@ class NoPrefix(commands.Cog):
             await log_channel.send("<@677952614390038559>", embed=embed_log)
 
 
-    
+
 
     @_np.command(name="status", help="Check if a user is in the No Prefix list and show details.")
     @commands.check(is_owner_or_staff)
@@ -352,7 +352,7 @@ class NoPrefix(commands.Cog):
 
             user_id, expires = result
 
-            if expires and expires != "Null": 
+            if expires and expires != "Null":
                 expire_time = datetime.fromisoformat(expires)
                 expire_timestamp = f"<t:{int(expire_time.timestamp())}:F>"
             else:
@@ -423,7 +423,7 @@ class NoPrefix(commands.Cog):
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute("SELECT 1 FROM np WHERE id = ?", (user_id,)) as cursor:
                 return await cursor.fetchone() is not None
-            
+
 
 
 
@@ -445,7 +445,7 @@ class NoPrefix(commands.Cog):
                 message = await log_channel.send("<@677952614390038559>", embed=embed)
                 await message.publish()
 
-        elif before.premium_since is not None and after.premium_since is None:  
+        elif before.premium_since is not None and after.premium_since is None:
             await self.handle_boost_removal(after)
 
     #@commands.Cog.listener()
@@ -458,7 +458,7 @@ class NoPrefix(commands.Cog):
                 if not await cursor.fetchone():
                     return
         if await self.is_user_in_np(user.id):
-            await self.remove_np(user) 
+            await self.remove_np(user)
             log_channel = self.client.get_channel(1302312616735281286)
             embed = discord.Embed(
                 title="Removed No prefix due to Unboosting Partner Server",
@@ -474,10 +474,10 @@ class NoPrefix(commands.Cog):
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("INSERT INTO np (id, expiry_time) VALUES (?, ?)", (user.id, expiry_time.isoformat()))
             await db.commit()
-            
+
         embed = discord.Embed(
                             title="Congratulations you got 2 months No Prefix!",
-                            description=f"You've been credited 2 months of global No Prefix for boosting our Partnered Servers. You can now use my commands without prefix. If you wish to remove it, please reach out [Support Server](https://discord.gg/codexdev).",
+                            description=f"You've been credited 2 months of global No Prefix for boosting our Partnered Servers. You can now use my commands without prefix. If you wish to remove it, please reach out [Support Server](https://discord.com/invite/ZEGw68gn5F).",
                             color=0x000000
                         )
         try:
@@ -507,12 +507,12 @@ class NoPrefix(commands.Cog):
 
             await db.execute("DELETE FROM np WHERE id = ?", (user.id,))
             await db.commit()
-            
+
         embed= discord.Embed(title="<a:Warning:1299512982006665216> Global No Prefix Expired",
                         description=f"Hey {user.mention}, your global no prefix has expired!\n\n__**Reason:**__ Unboosting our partnered Server.\nIf you think this is a mistake then please reach out [Support Server](https://discord.gg/odx).",
                         color=0x000000)
-            
-            
+
+
         try:
             await user.send(embed=embed)
         except discord.Forbidden:
@@ -523,12 +523,12 @@ class NoPrefix(commands.Cog):
         guild = self.client.get_guild(699587669059174461)
         if guild:
             member = guild.get_member(user.id)
-            if member is not None: 
+            if member is not None:
                 role = guild.get_role(1295883122902302771)
                 if role and role in member.roles:
                     await member.remove_roles(role)
-                    
-                    
+
+
     @_np.command(name="reset", help="Reset/clear all users from the no-prefix list")
     @commands.is_owner()
     async def np_reset(self, ctx):
@@ -538,30 +538,30 @@ class NoPrefix(commands.Cog):
             description="Are you sure you want to remove **ALL** users from the no-prefix list? This action cannot be undone.",
             color=0x000000
         )
-        
+
         # Create confirmation buttons
         yes_button = Button(label="Yes", style=discord.ButtonStyle.danger)
         no_button = Button(label="No", style=discord.ButtonStyle.secondary)
-        
+
         view = View()
         view.add_item(yes_button)
         view.add_item(no_button)
-        
+
         # Define button callbacks
         async def yes_callback(interaction):
             if interaction.user != ctx.author:
                 return await interaction.response.send_message("This interaction is not for you.", ephemeral=True)
-            
+
             # Remove all users from no-prefix list
             async with aiosqlite.connect(self.db_path) as db:
                 # Get count of users before deletion
                 async with db.execute("SELECT COUNT(*) FROM np") as cursor:
                     count = (await cursor.fetchone())[0]
-                
+
                 # Delete all entries
                 await db.execute("DELETE FROM np")
                 await db.commit()
-            
+
             # Remove roles from all members in the main guild
             guild = self.client.get_guild(699587669059174461)
             if guild:
@@ -573,7 +573,7 @@ class NoPrefix(commands.Cog):
                             await member.remove_roles(role, reason="Global no-prefix reset")
                         except discord.HTTPException:
                             pass
-            
+
             # Send success message
             success_embed = discord.Embed(
                 title="<:tick_red:1374052118020882563> No-Prefix Reset Complete",
@@ -581,7 +581,7 @@ class NoPrefix(commands.Cog):
                 color=0x000000
             )
             await interaction.response.edit_message(embed=success_embed, view=None)
-            
+
             # Log the action
             log_channel = self.client.get_channel(1299513624477306974)
             if log_channel:
@@ -592,20 +592,19 @@ class NoPrefix(commands.Cog):
                 )
                 log_embed.set_footer(text="No Prefix Reset Log")
                 await log_channel.send("<#1376174251174002799>", embed=log_embed)
-        
+
         async def no_callback(interaction):
             if interaction.user != ctx.author:
                 return await interaction.response.send_message("This interaction is not for you.", ephemeral=True)
-            
+
             cancel_embed = discord.Embed(
                 title="Reset Cancelled",
                 description="No changes have been made to the no-prefix list.",
                 color=0x000000
             )
             await interaction.response.edit_message(embed=cancel_embed, view=None)
-        
+
         yes_button.callback = yes_callback
         no_button.callback = no_callback
-        
-        await ctx.reply(embed=embed, view=view)
 
+        await ctx.reply(embed=embed, view=view)
