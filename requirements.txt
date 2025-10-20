@@ -35,3 +35,4 @@ colorama
 chess
 python-dateutil
 deep-translator
+feedparser
