@@ -1,4 +1,5 @@
 from __future__ import annotations
+from cogs.axon.social_feed import _socialfeed
 from core import axon
 from colorama import Fore, Style, init
 
@@ -19,6 +20,7 @@ from .commands.ignore import Ignore
 from .commands.Media import Media
 from .commands.Invc import Invcrole
 from .commands.giveaway import Giveaway
+from .commands.social_feed import SocialFeed
 from .commands.Embed import Embed
 from .commands.steal import Steal
 from .commands.ship import Ship
@@ -180,6 +182,7 @@ async def setup(bot: axon):
   await bot.add_cog(Ignore(bot))
   await bot.add_cog(Invcrole(bot))
   await bot.add_cog(Giveaway(bot))
+  await bot.add_cog(SocialFeed(bot))
   await bot.add_cog(Steal(bot))
   await bot.add_cog(Ship(bot))
   await bot.add_cog(Timer(bot))
@@ -227,6 +230,7 @@ async def setup(bot: axon):
   await bot.add_cog(_voice(bot))
   await bot.add_cog(_welcome(bot))
   await bot.add_cog(_giveaway(bot))
+  await bot.add_cog(_socialfeed(bot))
   await bot.add_cog(_ticket(bot))
   await bot.add_cog(Loggingdrop(bot))
   await bot.add_cog(_vanity(bot))
