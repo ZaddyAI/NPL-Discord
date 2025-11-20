@@ -10,19 +10,42 @@ from datetime import datetime
 import re
 import random
 import json
+import html
+import time
+import logging
+from typing import Optional, List, Dict, Any
 from utils.Tools import *
+
+# Twitter configuration - USE EXACT SAME AS STANDALONE
+TWITTER_CONFIG = {
+    "NITTER_INSTANCES": [
+        "https://nitter.privacyredirect.com",
+        "https://nitter.net",
+        "https://nitter.it",
+        "https://nitter.unixfox.eu"
+    ],
+    "CHECK_INTERVAL": 180,  # Changed to 3 minutes
+    "MAX_RETRIES": 3,
+    "RETRY_DELAY": 60,
+    "USE_FXEMBED": True,
+    "FXEMBED_MODE": "enhanced"
+}
+
+# Global Twitter variables
+twitter_current_instance_index = 0
+twitter_retry_count = 0
 
 db_folder = 'db'
 db_file = 'social_feed.db'
 db_path = os.path.join(db_folder, db_file)
 
-# Nepal flag blue color
+# Colors
 NEPAL_BLUE = 0x003893
 TWITTER_BLUE = 0x1DA1F2
 YOUTUBE_RED = 0xFF0000
 REDDIT_ORANGE = 0xFF5700
 
-# Real social media icons
+# Social media icons
 TWITTER_ICON = "https://abs.twimg.com/favicons/twitter.2.ico"
 YOUTUBE_ICON = "https://www.youtube.com/s/desktop/5c6daf13/img/favicon_144x144.png"
 REDDIT_ICON = "https://www.redditstatic.com/icon.png"
@@ -32,7 +55,6 @@ async def init_db():
     if not os.path.exists(db_folder):
         os.makedirs(db_folder)
     async with aiosqlite.connect(db_path) as db:
-        await db.execute('DROP TABLE IF EXISTS SocialFeed')
         await db.execute('''CREATE TABLE IF NOT EXISTS SocialFeed (
                                 guild_id INTEGER,
                                 channel_id INTEGER,
@@ -201,6 +223,197 @@ class AddFeedModal(discord.ui.Modal, title="Add Social Feed"):
         else:
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
+# --------------------------
+# EXACT SAME FxEmbed from standalone script
+# --------------------------
+class FxEmbed:
+    """FxEmbed integration for enhanced Twitter links"""
+
+    @staticmethod
+    def convert_twitter_url(original_url: str, mode: str = "enhanced", translate: Optional[str] = None) -> str:
+        """
+        Convert Twitter/X URL to FxEmbed enhanced URL.
+
+        Modes:
+        - enhanced: Regular enhanced embed (default)
+        - gallery: Gallery view (g.fxtwitter.com)
+        - text: Text-only view (t.fxtwitter.com)
+        - direct: Direct media links (d.fxtwitter.com)
+        - mosaic: Combined mosaic image (m.fxtwitter.com)
+        """
+        # Extract tweet ID from various URL formats
+        tweet_id = FxEmbed.extract_tweet_id(original_url)
+        if not tweet_id:
+            return original_url
+
+        # Determine base domain and subdomain
+        if "x.com" in original_url:
+            base_domain = "fixupx.com"
+            original_domain = "x.com"
+        else:
+            base_domain = "fxtwitter.com"
+            original_domain = "twitter.com"
+
+        # Apply mode-specific subdomain
+        if mode == "gallery":
+            subdomain = "g."
+        elif mode == "text":
+            subdomain = "t."
+        elif mode == "direct":
+            subdomain = "d."
+        elif mode == "mosaic":
+            subdomain = "m."
+        else:  # enhanced
+            subdomain = ""
+
+        # Reconstruct URL with FxEmbed
+        username = FxEmbed.extract_username(original_url)
+        if not username:
+            username = "i"  # fallback for intent URLs
+
+        new_url = f"https://{subdomain}{base_domain}/{username}/status/{tweet_id}"
+
+        # Add translation if requested
+        if translate:
+            new_url += f"/{translate}"
+
+        return new_url
+
+    @staticmethod
+    def extract_tweet_id(url: str) -> Optional[str]:
+        """Extract tweet ID from various Twitter URL formats."""
+        patterns = [
+            r'status/(\d+)',
+            r'twitter\.com/\w+/status/(\d+)',
+            r'x\.com/\w+/status/(\d+)',
+            r'nitter\.\w+/\w+/status/(\d+)'
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+
+    @staticmethod
+    def extract_username(url: str) -> Optional[str]:
+        """Extract username from Twitter URL."""
+        patterns = [
+            r'twitter\.com/([^/]+)/status',
+            r'x\.com/([^/]+)/status',
+            r'nitter\.\w+/([^/]+)/status'
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+
+# --------------------------
+# EXACT SAME Twitter Monitor from standalone script (SYNCHRONOUS)
+# --------------------------
+class TwitterMonitor:
+    """EXACT SAME Twitter monitoring logic from standalone script"""
+
+    @staticmethod
+    def get_current_rss_url(feed_name: str) -> str:
+        """Get RSS URL from current Nitter instance."""
+        global twitter_current_instance_index
+        base_url = TWITTER_CONFIG["NITTER_INSTANCES"][twitter_current_instance_index]
+        return f"{base_url}/{feed_name.lstrip('@')}/rss"
+
+    @staticmethod
+    def rotate_nitter_instance() -> None:
+        """Switch to next Nitter instance if current one fails."""
+        global twitter_current_instance_index
+        twitter_current_instance_index = (twitter_current_instance_index + 1) % len(TWITTER_CONFIG["NITTER_INSTANCES"])
+        print(f"🔄 Switched to Nitter instance: {TWITTER_CONFIG['NITTER_INSTANCES'][twitter_current_instance_index]}")
+
+    @staticmethod
+    def clean_html(text: str) -> str:
+        """Remove HTML tags and clean up text."""
+        if not text:
+            return ""
+
+        text = html.unescape(text)
+        text = re.sub(r'<[^>]+>', '', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        return text
+
+    @staticmethod
+    def extract_tweet_content(description: str) -> Dict[str, Any]:
+        """Extract clean text and images from tweet description."""
+        if not description:
+            return {"text": "", "images": []}
+
+        # Extract images
+        image_pattern = r'<img src="([^"]+)"'
+        images = re.findall(image_pattern, description)
+
+        # Clean text
+        clean_text = TwitterMonitor.clean_html(description)
+        clean_text = re.sub(r'pic\.twitter\.com/\w+', '', clean_text)
+        clean_text = re.sub(r'https?://\S+', '', clean_text)
+
+        return {
+            "text": clean_text,
+            "images": images
+        }
+
+    @staticmethod
+    def fetch_latest_tweet(feed_name: str) -> Optional[feedparser.FeedParserDict]:
+        """Fetch the most recent tweet from RSS feed - EXACT SAME AS STANDALONE"""
+        global twitter_retry_count
+
+        try:
+            rss_url = TwitterMonitor.get_current_rss_url(feed_name)
+            print(f"🔍 Fetching Twitter feed: {rss_url}")
+
+            # EXACT SAME AS STANDALONE: Use feedparser directly (synchronous)
+            feed = feedparser.parse(rss_url)
+
+            # EXACT SAME AS STANDALONE: Handle bozo errors but continue
+            if hasattr(feed, 'bozo') and feed.bozo:
+                print(f"⚠️ Feed parsing warning: {feed.bozo_exception}")
+                TwitterMonitor.rotate_nitter_instance()
+                return None
+
+            if not feed.entries:
+                print("❌ No tweets found in the feed.")
+                twitter_retry_count = 0
+                return None
+
+            twitter_retry_count = 0
+            print(f"✅ Found {len(feed.entries)} tweets")
+            return feed.entries[0]
+
+        except Exception as e:
+            print(f"❌ Error fetching tweets: {e}")
+            twitter_retry_count += 1
+
+            if twitter_retry_count >= TWITTER_CONFIG["MAX_RETRIES"]:
+                print(f"🔄 Max retries exceeded. Rotating Nitter instance.")
+                TwitterMonitor.rotate_nitter_instance()
+                twitter_retry_count = 0
+                time.sleep(TWITTER_CONFIG["RETRY_DELAY"])
+
+            return None
+
+    @staticmethod
+    def create_twitter_message(tweet: feedparser.FeedParserDict, feed_name: str) -> str:
+        """Create Twitter message with enhanced link (EXACT same as standalone)."""
+        content = TwitterMonitor.extract_tweet_content(tweet.description)
+        enhanced_url = FxEmbed.convert_twitter_url(
+            tweet.link,
+            TWITTER_CONFIG["FXEMBED_MODE"]
+        )
+
+        username = feed_name.lstrip('@')
+        message = f"New Post From **[@{username}]({enhanced_url})**"
+        return message
+
 class SocialFeedView(discord.ui.View):
     def __init__(self, bot):
         super().__init__(timeout=300)
@@ -236,35 +449,14 @@ class SocialFeedView(discord.ui.View):
         }
 
     def get_twitter_services(self):
-        """Get list of WORKING Twitter service alternatives with all instances"""
+        """Get Twitter service instances"""
         return {
             "nitter": {
-                "instances": [
-                    "https://xcancel.com",
-                    "https://nitter.privacyredirect.com",
-                    "https://nitter.poast.org",
-                    "https://nuku.trabun.org",
-                    "https://nitter.space",
-                    "https://lightbrd.com",
-                    "https://nitter.net",
-                    "https://nitter.tiekoetter.com",
-                    "https://nitter.weiler.rocks",
-                    "https://nitter.privacydev.net"
-                ],
+                "instances": TWITTER_CONFIG["NITTER_INSTANCES"],
                 "url_template": "{instance}/{username}/rss",
                 "name": "Nitter",
                 "emoji": "🔵",
                 "description": "Privacy-focused Twitter frontend"
-            },
-            "rsshub": {
-                "instances": [
-                    "https://rsshub.app",
-                    "https://rsshub.rssforever.com",
-                ],
-                "url_template": "{instance}/twitter/user/{username}",
-                "name": "RSSHub",
-                "emoji": "🔗",
-                "description": "Universal RSS generator"
             }
         }
 
@@ -321,7 +513,7 @@ class SocialFeedView(discord.ui.View):
             inline=False
         )
 
-        embed.set_footer(text="🔄 Auto-retrying every 60 seconds • Powered by NPL Utils", icon_url=DISCORD_ICON)
+        embed.set_footer(text="🔄 Auto-retrying every 3 minutes • Powered by NPL Utils", icon_url=DISCORD_ICON)
         return embed
 
     def clean_html_content(self, html_content):
@@ -415,10 +607,9 @@ class SocialFeedView(discord.ui.View):
                 if service:
                     return service["url_template"].format(instance=instance, username=clean_name)
 
-            # Try Nitter first with random instance
-            service = services["nitter"]
-            instance = random.choice(service["instances"])
-            return service["url_template"].format(instance=instance, username=clean_name)
+            # Use current instance
+            instance = TWITTER_CONFIG["NITTER_INSTANCES"][twitter_current_instance_index]
+            return f"{instance}/{clean_name}/rss"
 
         elif platform == "youtube":
             # For YouTube, use the channel ID directly
@@ -433,20 +624,21 @@ class SocialFeedView(discord.ui.View):
                 if service:
                     return service["url_template"].format(instance=instance, feed_name=clean_name)
 
-            # Default to direct Reddit
+            # Default to direct Reddit with improved URL generation
             service = services["reddit"]
             instance = random.choice(service["instances"])
 
             # Handle different Reddit URL formats
             if clean_name.startswith('r/'):
                 subreddit = clean_name[2:].strip()
-                return f"{instance}/r/{subreddit}/.rss"
+                return f"{instance}/r/{subreddit}/new/.rss"
             elif clean_name.startswith('u/') or clean_name.startswith('user/'):
                 username = clean_name[2:] if clean_name.startswith('u/') else clean_name[5:]
-                return f"{instance}/user/{username}/.rss"
+                return f"{instance}/user/{username}/submitted/.rss"
             else:
                 # Assume it's a subreddit
-                return f"{instance}/r/{clean_name}/.rss"
+                return f"{instance}/r/{clean_name}/new/.rss"
+
         return None
 
     def validate_feed_name(self, platform, feed_name):
@@ -457,26 +649,46 @@ class SocialFeedView(discord.ui.View):
                 return False, "Invalid Reddit name format"
         return True, feed_name
 
+    async def test_twitter_feed(self, feed_name: str):
+        """Test Twitter feed using EXACT SAME synchronous approach as standalone"""
+        print(f"🔍 Testing Twitter feed for: {feed_name}")
+
+        # Use EXACT SAME synchronous approach as standalone
+        tweet = await asyncio.get_event_loop().run_in_executor(
+            None, TwitterMonitor.fetch_latest_tweet, feed_name
+        )
+
+        if tweet is None:
+            return False, "Could not fetch tweets from any Nitter instance"
+
+        return True, tweet
+
     async def test_feed_url(self, feed_url, platform, feed_name):
         """Test if a feed URL is accessible with proper error handling"""
+        # For Twitter, use the EXACT SAME synchronous approach as standalone
+        if platform == "twitter":
+            return await self.test_twitter_feed(feed_name)
+
+        # For other platforms, use optimized method with shorter timeout
         headers = self.get_chromium_headers()
 
-        # Add platform-specific headers
         if platform == "reddit":
             headers['User-Agent'] = 'Mozilla/5.0 (compatible; SocialFeedBot/1.0)'
 
         async with aiohttp.ClientSession() as session:
             try:
                 print(f"🔍 Testing feed URL: {feed_url}")
-                async with session.get(feed_url, timeout=15, headers=headers, allow_redirects=True) as response:
+                # Reduced timeout from 15 to 8 seconds for faster response
+                async with session.get(feed_url, timeout=8, headers=headers, allow_redirects=True) as response:
                     print(f"📡 Response status: {response.status}")
 
                     if response.status == 200:
+                        # Read only first 10KB to check if it's RSS (faster)
                         text = await response.text()
 
-                        # Check if we got a valid RSS response (including CDATA wrapped content)
-                        if any(tag in text.lower() for tag in ['<rss', '<feed', '<?xml', '<![CDATA']):
-                            # It's a valid RSS feed - parse it
+                        # Quick check for RSS tags
+                        if any(tag in text.lower() for tag in ['<rss', '<feed', '<?xml']):
+                            # Only parse if it's a valid RSS
                             feed = feedparser.parse(text)
 
                             if hasattr(feed, 'bozo') and feed.bozo:
@@ -490,8 +702,7 @@ class SocialFeedView(discord.ui.View):
                             print(f"✅ Success! Found {len(feed.entries)} entries")
                             return True, feed
                         else:
-                            # It's not RSS - might be HTML
-                            print("❌ Not a valid RSS feed - got HTML instead")
+                            print("❌ Not a valid RSS feed")
                             return False, "Service returned HTML instead of RSS feed"
                     else:
                         error_msg = f"HTTP {response.status}: {response.reason}"
@@ -561,60 +772,8 @@ class SocialFeedView(discord.ui.View):
                     await interaction.followup.send(embed=embed, ephemeral=True)
                     return
 
-        # Try multiple services and instances
-        feed_url = None
-        test_feed = None
-        working_instance = None
-        service_type = None
-        successful_services = []
-
-        if self.platform == "twitter":
-            services = self.get_twitter_services()
-        elif self.platform == "reddit":
-            services = self.get_reddit_services()
-        else:
-            services = {}
-
-        if services:
-            # Try all instances of all services
-            for service_name, service_info in services.items():
-                service_successful = []
-                for instance in service_info["instances"]:
-                    test_url = service_info["url_template"].format(instance=instance, feed_name=actual_feed_name, username=actual_feed_name.lstrip('@'))
-                    success, result = await self.test_feed_url(test_url, self.platform, actual_feed_name)
-                    if success:
-                        service_successful.append(instance)
-                        if not feed_url:  # Use the first successful one
-                            feed_url = test_url
-                            test_feed = result
-                            working_instance = instance
-                            service_type = service_name
-
-                if service_successful:
-                    successful_services.append({
-                        "name": service_info["name"],
-                        "emoji": service_info["emoji"],
-                        "instances": service_successful,
-                        "description": service_info["description"]
-                    })
-
-            if not successful_services:
-                # All services failed - show attractive error embed
-                if self.platform == "twitter":
-                    embed = self.create_twitter_error_embed(self.feed_name)
-                    await interaction.followup.send(embed=embed, ephemeral=True)
-                else:
-                    embed = discord.Embed(
-                        title=f"❌ {self.platform.title()} Feed Error",
-                        description=f"All {self.platform.title()} services are currently unavailable for `{self.feed_name}`. Please try again later.",
-                        color=0xff0000
-                    )
-                    await interaction.followup.send(embed=embed, ephemeral=True)
-                return
-
-            self.successful_services = successful_services
-        else:
-            # For YouTube and others without multiple services
+        # Test the feed with timeout protection
+        try:
             feed_url = self.generate_feed_url(self.platform, actual_feed_name)
             if not feed_url:
                 embed = discord.Embed(
@@ -625,111 +784,126 @@ class SocialFeedView(discord.ui.View):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
 
-            success, result = await self.test_feed_url(feed_url, self.platform, actual_feed_name)
+            # Add a timeout for the entire testing process
+            success, result = await asyncio.wait_for(
+                self.test_feed_url(feed_url, self.platform, actual_feed_name),
+                timeout=10.0  # 10 second timeout for entire test
+            )
+
             if not success:
                 embed = discord.Embed(
                     title="❌ Feed Error",
-                    description=f"Could not access feed: {result}\n\n**URL:** {feed_url}",
+                    description=f"Could not access feed: {result}",
                     color=0xff0000
                 )
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
+
             test_feed = result
             working_instance = "direct"
             service_type = "direct"
 
-        # Extract latest post info
-        latest_post_id = None
-        latest_post_time = None
-        if test_feed.entries:
-            latest_post = test_feed.entries[0]
-            latest_post_id = latest_post.id if hasattr(latest_post, 'id') else latest_post.link
-            if hasattr(latest_post, 'published_parsed') and latest_post.published_parsed:
-                latest_post_time = datetime(*latest_post.published_parsed[:6])
+            # Extract latest post info
+            latest_post_id = None
+            latest_post_time = None
+            if test_feed and test_feed.entries:
+                latest_post = test_feed.entries[0]
+                latest_post_id = latest_post.id if hasattr(latest_post, 'id') else latest_post.link
+                if hasattr(latest_post, 'published_parsed') and latest_post.published_parsed:
+                    latest_post_time = datetime(*latest_post.published_parsed[:6])
 
-        # Save to database
-        try:
-            async with aiosqlite.connect(db_path) as db:
-                await db.execute(
-                    "INSERT OR REPLACE INTO SocialFeed(guild_id, channel_id, platform, feed_name, feed_url, last_post_id, last_post_time, last_check_time, working_instance, service_type, mention_text, display_name, channel_data) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (interaction.guild.id, interaction.channel.id, self.platform, actual_feed_name, feed_url, latest_post_id, latest_post_time, datetime.now(), working_instance, service_type, self.mention_text, display_name, json.dumps(channel_data) if channel_data else None)
+            # Generate feed URL for database
+            feed_url = self.generate_feed_url(self.platform, actual_feed_name, service_type, working_instance)
+
+            # Save to database
+            try:
+                async with aiosqlite.connect(db_path) as db:
+                    await db.execute(
+                        "INSERT OR REPLACE INTO SocialFeed(guild_id, channel_id, platform, feed_name, feed_url, last_post_id, last_post_time, last_check_time, working_instance, service_type, mention_text, display_name, channel_data) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (interaction.guild.id, interaction.channel.id, self.platform, actual_feed_name, feed_url, latest_post_id, latest_post_time, datetime.now(), working_instance, service_type, self.mention_text, display_name, json.dumps(channel_data) if channel_data else None)
+                    )
+                    await db.commit()
+
+                platform_icons = {
+                    "twitter": TWITTER_ICON,
+                    "youtube": YOUTUBE_ICON,
+                    "reddit": REDDIT_ICON
+                }
+
+                # Create beautiful success embed
+                embed = discord.Embed(
+                    title="🎉 Feed Added Successfully!",
+                    color=NEPAL_BLUE,
+                    timestamp=datetime.utcnow()
                 )
-                await db.commit()
 
-            platform_icons = {
-                "twitter": TWITTER_ICON,
-                "youtube": YOUTUBE_ICON,
-                "reddit": REDDIT_ICON
-            }
+                embed.set_thumbnail(url=platform_icons.get(self.platform, DISCORD_ICON))
 
-            # Create beautiful success embed
-            embed = discord.Embed(
-                title="🎉 Feed Added Successfully!",
-                color=NEPAL_BLUE,
-                timestamp=datetime.utcnow()
-            )
-
-            embed.set_thumbnail(url=platform_icons.get(self.platform, DISCORD_ICON))
-
-            embed.add_field(
-                name="📱 Platform",
-                value=f"**{self.platform.title()}**",
-                inline=True
-            )
-
-            embed.add_field(
-                name="👤 Display Name",
-                value=f"`{display_name}`",
-                inline=True
-            )
-
-            if self.platform == "youtube" and display_name != actual_feed_name:
                 embed.add_field(
-                    name="🆔 Channel ID",
-                    value=f"`{actual_feed_name}`",
+                    name="📱 Platform",
+                    value=f"**{self.platform.title()}**",
                     inline=True
                 )
 
-            embed.add_field(
-                name="📋 Channel",
-                value=interaction.channel.mention,
-                inline=True
-            )
-
-            if self.mention_text:
                 embed.add_field(
-                    name="🔔 Mentions",
-                    value=self.mention_text,
+                    name="👤 Display Name",
+                    value=f"`{display_name}`",
                     inline=True
                 )
 
-            if successful_services:
-                service_info = ""
-                for service in successful_services:
-                    service_info += f"{service['emoji']} **{service['name']}**: {len(service['instances'])} instances\n"
+                if self.platform == "youtube" and display_name != actual_feed_name:
+                    embed.add_field(
+                        name="🆔 Channel ID",
+                        value=f"`{actual_feed_name}`",
+                        inline=True
+                    )
 
                 embed.add_field(
-                    name="🌐 Available Services",
-                    value=service_info,
-                    inline=False
+                    name="📋 Channel",
+                    value=interaction.channel.mention,
+                    inline=True
                 )
 
+                if self.mention_text:
+                    embed.add_field(
+                        name="🔔 Mentions",
+                        value=self.mention_text,
+                        inline=True
+                    )
+
                 embed.add_field(
-                    name="⚡ Primary Service",
+                    name="⚡ Service",
                     value=f"**{service_type.title()}** • `{working_instance}`",
                     inline=True
                 )
 
-            embed.set_footer(text="🚀 Social Feed System • Updates every 60 seconds", icon_url=DISCORD_ICON)
-            await interaction.followup.send(embed=embed, ephemeral=True)
+                embed.set_footer(text="🚀 Social Feed System • Updates every 3 minutes", icon_url=DISCORD_ICON)
+                await interaction.followup.send(embed=embed, ephemeral=True)
 
-        except Exception as e:
+            except Exception as e:
+                embed = discord.Embed(
+                    title="❌ Database Error",
+                    description=f"An error occurred while saving the feed: {str(e)}",
+                    color=0xff0000
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except asyncio.TimeoutError:
             embed = discord.Embed(
-                title="❌ Database Error",
-                description=f"An error occurred while saving the feed: {str(e)}",
+                title="⏰ Timeout Error",
+                description="Feed testing took too long. The service might be slow or unavailable.",
                 color=0xff0000
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ Unexpected Error",
+                description=f"An unexpected error occurred: {str(e)}",
+                color=0xff0000
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
 
 class SocialFeed(commands.Cog):
     def __init__(self, bot):
@@ -807,7 +981,7 @@ class SocialFeed(commands.Cog):
         direct_video_urls = []
 
         if platform == "reddit":
-            # Reddit media extraction
+            # Improved Reddit media extraction
             if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
                 for thumb in entry.media_thumbnail:
                     if hasattr(thumb, 'url') and thumb.url:
@@ -817,17 +991,32 @@ class SocialFeed(commands.Cog):
                 for media in entry.media_content:
                     if hasattr(media, 'url') and media.url:
                         media_urls.append(media.url)
-                        if any(ext in media.url.lower() for ext in ['.mp4', '.mov', '.avi', '.webm']):
+                        if any(ext in media.url.lower() for ext in ['.mp4', '.mov', '.avi', '.webm', '.gif']):
                             direct_video_urls.append(media.url)
 
+            # Extract from description for Reddit - improved pattern
+            if hasattr(entry, 'description') and entry.description:
+                image_urls = self.extract_image_urls_from_description(entry.description)
+                media_urls.extend(image_urls)
+
+            # Try to extract from links if no media found
+            if not media_urls and hasattr(entry, 'links'):
+                for link in entry.links:
+                    if hasattr(link, 'href'):
+                        url = link.href
+                        if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                            media_urls.append(url)
+                        elif any(ext in url.lower() for ext in ['.mp4', '.mov', '.avi', '.webm']):
+                            direct_video_urls.append(url)
+
         elif platform == "twitter":
-            # Twitter media extraction - check both standard attributes and description
+            # Twitter media extraction
             if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
                 for thumb in entry.media_thumbnail:
                     if hasattr(thumb, 'url') and thumb.url:
                         media_urls.append(thumb.url)
 
-            # Extract images from description (for Nitter RSS feeds with CDATA)
+            # Extract images from description
             if hasattr(entry, 'description') and entry.description:
                 image_urls = self.extract_image_urls_from_description(entry.description)
                 media_urls.extend(image_urls)
@@ -852,13 +1041,8 @@ class SocialFeed(commands.Cog):
         return media_urls, direct_video_urls
 
     def create_post_embed(self, platform, feed_name, post_data, channel_data=None, is_test=False):
-        """Create a beautiful embed for social media posts"""
+        """Create a beautiful embed for social media posts (YouTube/Reddit only)"""
         platform_configs = {
-            "twitter": {
-                "color": TWITTER_BLUE,
-                "author_format": "{}",
-                "thumbnail": TWITTER_ICON,
-            },
             "youtube": {
                 "color": YOUTUBE_RED,
                 "author_format": "{}",
@@ -871,7 +1055,9 @@ class SocialFeed(commands.Cog):
             }
         }
 
-        config = platform_configs.get(platform, platform_configs["twitter"])
+        config = platform_configs.get(platform)
+        if not config:
+            return None
 
         # Use channel thumbnail for YouTube if available
         author_thumbnail = config["thumbnail"]
@@ -943,7 +1129,6 @@ class SocialFeed(commands.Cog):
 
         # Footer with platform info
         platform_icons = {
-            "twitter": TWITTER_ICON,
             "youtube": YOUTUBE_ICON,
             "reddit": REDDIT_ICON
         }
@@ -955,121 +1140,49 @@ class SocialFeed(commands.Cog):
 
         return embed
 
-    def get_twitter_services(self):
-        """Get list of WORKING Twitter service alternatives with all instances"""
-        return {
-            "nitter": {
-                "instances": [
-                    "https://xcancel.com",
-                    "https://nitter.privacyredirect.com",
-                    "https://nitter.poast.org",
-                    "https://nuku.trabun.org",
-                    "https://nitter.space",
-                    "https://lightbrd.com",
-                    "https://nitter.net",
-                    "https://nitter.tiekoetter.com",
-                    "https://nitter.weiler.rocks",
-                    "https://nitter.privacydev.net"
-                ],
-                "url_template": "{instance}/{username}/rss",
-                "name": "Nitter",
-                "emoji": "🔵",
-                "description": "Privacy-focused Twitter frontend"
-            },
-            "rsshub": {
-                "instances": [
-                    "https://rsshub.app",
-                    "https://rsshub.rssforever.com",
-                ],
-                "url_template": "{instance}/twitter/user/{username}",
-                "name": "RSSHub",
-                "emoji": "🔗",
-                "description": "Universal RSS generator"
-            }
-        }
-
-    def get_reddit_services(self):
-        """Get list of Reddit service alternatives"""
-        return {
-            "reddit": {
-                "instances": [
-                    "https://www.reddit.com",
-                    "https://old.reddit.com"
-                ],
-                "url_template": "{instance}/{feed_name}/.rss",
-                "name": "Reddit",
-                "emoji": "🟠",
-                "description": "Direct Reddit RSS"
-            },
-            "rsshub": {
-                "instances": [
-                    "https://rsshub.app",
-                    "https://rsshub.rssforever.com"
-                ],
-                "url_template": "{instance}/reddit/{feed_name}",
-                "name": "RSSHub",
-                "emoji": "🔗",
-                "description": "Universal RSS generator"
-            }
-        }
+    async def fetch_twitter_feed(self, feed_name: str):
+        """Fetch Twitter feed using EXACT SAME synchronous approach as standalone"""
+        # Use EXACT SAME synchronous approach as standalone
+        return await asyncio.get_event_loop().run_in_executor(
+            None, TwitterMonitor.fetch_latest_tweet, feed_name
+        )
 
     async def fetch_feed_with_fallback(self, feed_url, platform, feed_name, current_instance=None, service_type=None):
-        """Fetch feed with fallback to other services and instances"""
+        """Fetch feed with fallback to other services and instances - OPTIMIZED"""
+        if platform == "twitter":
+            # Use EXACT SAME synchronous approach for Twitter
+            tweet = await self.fetch_twitter_feed(feed_name)
+            if tweet:
+                return type('MockFeed', (), {'entries': [tweet]})(), current_instance, service_type
+            return None, current_instance, service_type
+
+        # For other platforms, use optimized approach
         headers = self.get_chromium_headers()
 
         if platform == "reddit":
             headers['User-Agent'] = 'Mozilla/5.0 (compatible; SocialFeedBot/1.0)'
 
-        # Try current instance first
+        # Try current instance first with shorter timeout
         try:
-            async with self.session.get(feed_url, timeout=15, headers=headers, allow_redirects=True) as response:
+            async with self.session.get(feed_url, timeout=10, headers=headers, allow_redirects=True) as response:
                 if response.status == 200:
                     text = await response.text()
-                    # Check for valid RSS (including CDATA content)
-                    if any(tag in text.lower() for tag in ['<rss', '<feed', '<?xml', '<![CDATA']):
+                    # Quick RSS check
+                    if any(tag in text.lower() for tag in ['<rss', '<feed', '<?xml']):
                         feed = feedparser.parse(text)
                         if not hasattr(feed, 'bozo') or not feed.bozo:
                             if feed.entries:
                                 return feed, current_instance, service_type
-        except Exception:
-            pass
-
-        # If current instance fails, try other services and instances
-        if platform == "twitter":
-            services = self.get_twitter_services()
-        elif platform == "reddit":
-            services = self.get_reddit_services()
-        else:
-            return None, current_instance, service_type
-
-        # Try all instances of all services
-        for new_service_type, service_info in services.items():
-            if new_service_type == service_type:
-                continue
-
-            for instance in service_info["instances"]:
-                try:
-                    if platform == "twitter":
-                        new_feed_url = service_info["url_template"].format(instance=instance, username=feed_name.lstrip('@'))
-                    else:
-                        new_feed_url = service_info["url_template"].format(instance=instance, feed_name=feed_name)
-
-                    async with self.session.get(new_feed_url, timeout=10, headers=headers, allow_redirects=True) as response:
-                        if response.status == 200:
-                            text = await response.text()
-                            if any(tag in text.lower() for tag in ['<rss', '<feed', '<?xml', '<![CDATA']):
-                                feed = feedparser.parse(text)
-                                if not hasattr(feed, 'bozo') or not feed.bozo:
-                                    if feed.entries:
-                                        return feed, instance, new_service_type
-                except Exception:
-                    continue
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            pass  # Silently continue to next instance
+        except Exception as e:
+            print(f"❌ Error fetching feed {feed_url}: {e}")
 
         return None, current_instance, service_type
 
-    @tasks.loop(seconds=60)
+    @tasks.loop(seconds=180)  # Changed to 3 minutes (180 seconds)
     async def check_feeds(self):
-        """Check all feeds for new posts with service fallback"""
+        """Check all feeds for new posts"""
         if self.is_checking:
             return
 
@@ -1099,67 +1212,86 @@ class SocialFeed(commands.Cog):
                     # Use display name if available
                     actual_feed_name = display_name if display_name else feed_name
 
-                    # Use fallback system for Twitter and Reddit feeds
-                    if platform in ["twitter", "reddit"]:
+                    # Fetch feed based on platform
+                    if platform == "twitter":
+                        # Use EXACT SAME synchronous approach as standalone
+                        tweet = await self.fetch_twitter_feed(feed_name)
+                        if not tweet:
+                            continue
+
+                        current_post_id = tweet.id if hasattr(tweet, 'id') else tweet.link
+
+                        if current_post_id != last_post_id:
+                            # Create Twitter message and combine with mention in same line
+                            message = TwitterMonitor.create_twitter_message(tweet, feed_name)
+                            if mention_text:
+                                full_message = f"{mention_text} {message}"
+                            else:
+                                full_message = message
+
+                            await channel.send(full_message)
+
+                            # Update database
+                            post_time = None
+                            if hasattr(tweet, 'published_parsed') and tweet.published_parsed:
+                                post_time = datetime(*tweet.published_parsed[:6])
+
+                            async with self.db.execute(
+                                "UPDATE SocialFeed SET last_post_id = ?, last_post_time = ?, last_check_time = ? WHERE guild_id = ? AND feed_name = ?",
+                                (current_post_id, post_time, datetime.now(), guild_id, feed_name)
+                            ):
+                                await self.db.commit()
+
+                    else:
+                        # For YouTube and Reddit, use existing approach
                         feed, new_instance, new_service_type = await self.fetch_feed_with_fallback(
                             feed_url, platform, feed_name, working_instance, service_type
                         )
-                    else:
-                        # For YouTube and other platforms
-                        headers = self.get_chromium_headers()
-                        try:
-                            async with self.session.get(feed_url, timeout=15, headers=headers, allow_redirects=True) as response:
-                                if response.status == 200:
-                                    text = await response.text()
-                                    if any(tag in text.lower() for tag in ['<rss', '<feed', '<?xml', '<![CDATA']):
-                                        feed = feedparser.parse(text)
-                                    else:
-                                        feed = None
+
+                        if not feed or not feed.entries:
+                            continue
+
+                        latest_post = feed.entries[0]
+                        current_post_id = latest_post.id if hasattr(latest_post, 'id') else latest_post.link
+
+                        if current_post_id != last_post_id:
+                            # Extract media URLs
+                            media_urls, direct_video_urls = self.extract_media_urls(platform, latest_post)
+
+                            # Clean description
+                            description = getattr(latest_post, 'summary', getattr(latest_post, 'description', ''))
+                            clean_description = self.clean_html_content(description)
+
+                            post_data = {
+                                'title': latest_post.title,
+                                'link': latest_post.link,
+                                'summary': clean_description,
+                                'description': clean_description,
+                                'published': getattr(latest_post, 'published_parsed', None),
+                                'media_urls': media_urls,
+                                'direct_video_urls': direct_video_urls
+                            }
+
+                            # Create embed for YouTube/Reddit
+                            embed = self.create_post_embed(platform, actual_feed_name, post_data, channel_data)
+
+                            try:
+                                # Get first direct video URL for play button
+                                direct_video_url = direct_video_urls[0] if direct_video_urls else None
+
+                                # Create view with watch button
+                                view = WatchButton(post_data['link'], platform, direct_video_url)
+
+                                # Send mention and embed in same message
+                                if mention_text:
+                                    await channel.send(f"{mention_text}", embed=embed, view=view)
                                 else:
-                                    feed = None
-                        except:
-                            feed = None
+                                    await channel.send(embed=embed, view=view)
 
-                    if not feed or not feed.entries:
-                        continue
-
-                    latest_post = feed.entries[0]
-                    current_post_id = latest_post.id if hasattr(latest_post, 'id') else latest_post.link
-
-                    if current_post_id != last_post_id:
-                        # Extract media URLs
-                        media_urls, direct_video_urls = self.extract_media_urls(platform, latest_post)
-
-                        # Clean description if it contains CDATA/HTML
-                        description = getattr(latest_post, 'summary', getattr(latest_post, 'description', ''))
-                        clean_description = self.clean_html_content(description)
-
-                        post_data = {
-                            'title': latest_post.title,
-                            'link': latest_post.link,
-                            'summary': clean_description,
-                            'description': clean_description,
-                            'published': getattr(latest_post, 'published_parsed', None),
-                            'media_urls': media_urls,
-                            'direct_video_urls': direct_video_urls
-                        }
-
-                        # Create embed
-                        embed = self.create_post_embed(platform, actual_feed_name, post_data, channel_data)
-
-                        try:
-                            # Send mention if configured
-                            if mention_text:
-                                await channel.send(f"🔔 {mention_text}")
-
-                            # Get first direct video URL for play button
-                            direct_video_url = direct_video_urls[0] if direct_video_urls else None
-
-                            # Create view with watch button
-                            view = WatchButton(post_data['link'], platform, direct_video_url)
-
-                            # Send embed with button
-                            await channel.send(embed=embed, view=view)
+                            except discord.Forbidden:
+                                print(f"No permission to send messages in {channel.name}")
+                            except Exception as e:
+                                print(f"Error sending message to {channel.name}: {e}")
 
                             post_time = None
                             if hasattr(latest_post, 'published_parsed') and latest_post.published_parsed:
@@ -1168,21 +1300,17 @@ class SocialFeed(commands.Cog):
                             # Update database
                             async with self.db.execute(
                                 "UPDATE SocialFeed SET last_post_id = ?, last_post_time = ?, last_check_time = ?, working_instance = ?, service_type = ? WHERE guild_id = ? AND feed_name = ?",
-                                (current_post_id, post_time, datetime.now(), working_instance, service_type, guild_id, feed_name)
+                                (current_post_id, post_time, datetime.now(), new_instance or working_instance, new_service_type or service_type, guild_id, feed_name)
                             ):
                                 await self.db.commit()
 
-                        except discord.Forbidden:
-                            print(f"No permission to send messages in {channel.name}")
-                        except Exception as e:
-                            print(f"Error sending message to {channel.name}: {e}")
-                    else:
-                        # Update last check time
-                        async with self.db.execute(
-                            "UPDATE SocialFeed SET last_check_time = ? WHERE guild_id = ? AND feed_name = ?",
-                            (datetime.now(), guild_id, feed_name)
-                        ):
-                            await self.db.commit()
+                        else:
+                            # Update last check time
+                            async with self.db.execute(
+                                "UPDATE SocialFeed SET last_check_time = ? WHERE guild_id = ? AND feed_name = ?",
+                                (datetime.now(), guild_id, feed_name)
+                            ):
+                                await self.db.commit()
 
                 except Exception as e:
                     print(f"Error processing feed {feed_name} for guild {guild_id}: {e}")
@@ -1194,6 +1322,7 @@ class SocialFeed(commands.Cog):
             self.is_checking = False
 
     # ----------------- Commands -----------------
+
     @commands.hybrid_command(name="socialfeed", description="Add a social media feed")
     @blacklist_check()
     @ignore_check()
@@ -1221,144 +1350,120 @@ class SocialFeed(commands.Cog):
     @commands.has_guild_permissions(manage_guild=True)
     @app_commands.guild_only()
     async def last_post(self, ctx, feed_name: str):
-        """Get the last posted content from a feed"""
+        """Get the last posted content from a feed - OPTIMIZED"""
+        # Send immediate response to avoid "thinking" state
         await ctx.defer(ephemeral=True)
 
-        async with self.db.execute(
-            "SELECT platform, feed_name, feed_url, last_post_id, last_post_time, working_instance, service_type, mention_text, display_name, channel_data FROM SocialFeed WHERE guild_id = ? AND feed_name = ?",
-            (ctx.guild.id, feed_name)
-        ) as cursor:
-            feed = await cursor.fetchone()
+        try:
+            # Add timeout for the entire operation
+            async with asyncio.timeout(15.0):  # 15 second timeout
+                async with self.db.execute(
+                    "SELECT platform, feed_name, feed_url, last_post_id, last_post_time, working_instance, service_type, mention_text, display_name, channel_data FROM SocialFeed WHERE guild_id = ? AND feed_name = ?",
+                    (ctx.guild.id, feed_name)
+                ) as cursor:
+                    feed = await cursor.fetchone()
 
-        if not feed:
-            embed = discord.Embed(
-                title="❌ Feed Not Found",
-                description=f"No feed found with name `{feed_name}`",
-                color=0xff0000
-            )
-            await ctx.send(embed=embed, ephemeral=True)
-            return
+                if not feed:
+                    embed = discord.Embed(
+                        title="❌ Feed Not Found",
+                        description=f"No feed found with name `{feed_name}`",
+                        color=0xff0000
+                    )
+                    await ctx.send(embed=embed, ephemeral=True)
+                    return
 
-        platform, feed_name, feed_url, last_post_id, last_post_time, working_instance, service_type, mention_text, display_name, channel_data_json = feed
+                platform, feed_name, feed_url, last_post_id, last_post_time, working_instance, service_type, mention_text, display_name, channel_data_json = feed
 
-        # Parse channel data
-        channel_data = None
-        if channel_data_json:
-            try:
-                channel_data = json.loads(channel_data_json)
-            except:
-                pass
+                # Parse channel data
+                channel_data = None
+                if channel_data_json:
+                    try:
+                        channel_data = json.loads(channel_data_json)
+                    except:
+                        pass
 
-        # Use display name if available
-        actual_feed_name = display_name if display_name else feed_name
+                # Use display name if available
+                actual_feed_name = display_name if display_name else feed_name
 
-        # Use fallback system for fetching
-        if platform in ["twitter", "reddit"]:
-            feed_data, _, _ = await self.fetch_feed_with_fallback(feed_url, platform, feed_name, working_instance, service_type)
-        else:
-            headers = self.get_chromium_headers()
-            async with self.session.get(feed_url, timeout=15, headers=headers) as response:
-                if response.status == 200:
-                    text = await response.text()
-                    feed_data = feedparser.parse(text) if any(tag in text.lower() for tag in ['<rss', '<feed', '<?xml', '<![CDATA']) else None
+                if platform == "twitter":
+                    # Use EXACT SAME synchronous approach for Twitter
+                    tweet = await self.fetch_twitter_feed(feed_name)
+                    if not tweet:
+                        embed = discord.Embed(
+                            title="❌ No Posts Found",
+                            description="Could not fetch feed or no posts found.",
+                            color=0xff0000
+                        )
+                        await ctx.send(embed=embed, ephemeral=True)
+                        return
+
+                    # Create Twitter message (NO EMBED)
+                    message = TwitterMonitor.create_twitter_message(tweet, feed_name)
+                    await ctx.send(message, ephemeral=True)
+
                 else:
-                    feed_data = None
+                    # For YouTube and Reddit, use optimized approach
+                    feed_data, _, _ = await self.fetch_feed_with_fallback(feed_url, platform, feed_name, working_instance, service_type)
 
-        if not feed_data or not feed_data.entries:
+                    if not feed_data or not feed_data.entries:
+                        embed = discord.Embed(
+                            title="❌ No Posts Found",
+                            description="Could not fetch feed or no posts found.",
+                            color=0xff0000
+                        )
+                        await ctx.send(embed=embed, ephemeral=True)
+                        return
+
+                    last_post = None
+                    for entry in feed_data.entries:
+                        entry_id = entry.id if hasattr(entry, 'id') else entry.link
+                        if entry_id == last_post_id:
+                            last_post = entry
+                            break
+
+                    if not last_post:
+                        last_post = feed_data.entries[0]
+
+                    # Quick media extraction without heavy processing
+                    media_urls, direct_video_urls = self.extract_media_urls(platform, last_post)
+
+                    # Clean description quickly
+                    description = getattr(last_post, 'summary', getattr(last_post, 'description', ''))
+                    clean_description = self.clean_html_content(description)
+
+                    post_data = {
+                        'title': last_post.title[:200] + "..." if len(last_post.title) > 200 else last_post.title,
+                        'link': last_post.link,
+                        'summary': clean_description[:500] + "..." if len(clean_description) > 500 else clean_description,
+                        'description': clean_description[:500] + "..." if len(clean_description) > 500 else clean_description,
+                        'published': getattr(last_post, 'published_parsed', None),
+                        'media_urls': media_urls,
+                        'direct_video_urls': direct_video_urls
+                    }
+
+                    embed = self.create_post_embed(platform, actual_feed_name, post_data, channel_data, is_test=True)
+
+                    # Get first direct video URL for play button
+                    direct_video_url = direct_video_urls[0] if direct_video_urls else None
+
+                    # Create view with watch button and play button if available
+                    view = WatchButton(post_data['link'], platform, direct_video_url)
+                    await ctx.send(embed=embed, view=view, ephemeral=True)
+
+        except asyncio.TimeoutError:
             embed = discord.Embed(
-                title="❌ No Posts Found",
-                description="Could not fetch feed or no posts found.",
+                title="⏰ Timeout Error",
+                description="The operation took too long. Please try again later.",
                 color=0xff0000
             )
             await ctx.send(embed=embed, ephemeral=True)
-            return
-
-        last_post = None
-        for entry in feed_data.entries:
-            entry_id = entry.id if hasattr(entry, 'id') else entry.link
-            if entry_id == last_post_id:
-                last_post = entry
-                break
-
-        if not last_post:
-            last_post = feed_data.entries[0]
-
-        # Extract media URLs including direct video URLs
-        media_urls, direct_video_urls = self.extract_media_urls(platform, last_post)
-
-        # Clean description
-        description = getattr(last_post, 'summary', getattr(last_post, 'description', ''))
-        clean_description = self.clean_html_content(description)
-
-        post_data = {
-            'title': last_post.title,
-            'link': last_post.link,
-            'summary': clean_description,
-            'description': clean_description,
-            'published': getattr(last_post, 'published_parsed', None),
-            'media_thumbnail': getattr(last_post, 'media_thumbnail', None),
-            'media_content': getattr(last_post, 'media_content', None),
-            'media_urls': media_urls,
-            'direct_video_urls': direct_video_urls
-        }
-
-        embed = self.create_post_embed(platform, actual_feed_name, post_data, channel_data, is_test=True)
-
-        # Add service information
-        if platform in ["twitter", "reddit"] and service_type:
-            if platform == "twitter":
-                services = self.get_twitter_services()
-            else:
-                services = self.get_reddit_services()
-
-            service_info = services.get(service_type, {})
-            embed.add_field(
-                name="🌐 Service",
-                value=f"{service_info.get('emoji', '🔗')} **{service_info.get('name', 'Unknown')}**\n`{working_instance}`",
-                inline=True
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ Error",
+                description=f"An error occurred: {str(e)}",
+                color=0xff0000
             )
-
-        # Add mention information
-        if mention_text:
-            embed.add_field(
-                name="🔔 Mentions",
-                value=mention_text,
-                inline=True
-            )
-
-        if last_post_time:
-            if isinstance(last_post_time, str):
-                try:
-                    last_post_time = datetime.fromisoformat(last_post_time.replace('Z', '+00:00'))
-                except:
-                    last_post_time = None
-
-            if last_post_time and hasattr(last_post_time, 'timestamp'):
-                embed.add_field(
-                    name="📅 Last Posted",
-                    value=f"<t:{int(last_post_time.timestamp())}:R>",
-                    inline=True
-                )
-        elif hasattr(last_post, 'published_parsed') and last_post.published_parsed:
-            post_time = datetime(*last_post.published_parsed[:6])
-            embed.add_field(
-                name="📅 Post Created",
-                value=f"<t:{int(post_time.timestamp())}:R>",
-                inline=True
-            )
-
-        embed.add_field(
-            name="🆔 Post ID",
-            value=f"`{last_post_id[:20]}...`" if last_post_id and len(last_post_id) > 20 else f"`{last_post_id}`",
-            inline=True
-        )
-
-        # Get first direct video URL for play button
-        direct_video_url = direct_video_urls[0] if direct_video_urls else None
-
-        # Create view with watch button and play button if available
-        view = WatchButton(post_data['link'], platform, direct_video_url)
-        await ctx.send(embed=embed, view=view, ephemeral=True)
+            await ctx.send(embed=embed, ephemeral=True)
 
     @commands.hybrid_command(name="socialfeed_latest", description="Get the latest post from a feed")
     @blacklist_check()
@@ -1367,132 +1472,111 @@ class SocialFeed(commands.Cog):
     @commands.has_guild_permissions(manage_guild=True)
     @app_commands.guild_only()
     async def latest_feed(self, ctx, feed_name: str):
-        """Get the latest post from a feed to test it"""
+        """Get the latest post from a feed to test it - OPTIMIZED"""
         await ctx.defer(ephemeral=True)
 
-        async with self.db.execute(
-            "SELECT platform, feed_name, feed_url, last_post_id, last_check_time, working_instance, service_type, mention_text, display_name, channel_data FROM SocialFeed WHERE guild_id = ? AND feed_name = ?",
-            (ctx.guild.id, feed_name)
-        ) as cursor:
-            feed = await cursor.fetchone()
+        try:
+            # Add timeout for the entire operation
+            async with asyncio.timeout(15.0):  # 15 second timeout
+                async with self.db.execute(
+                    "SELECT platform, feed_name, feed_url, last_post_id, last_check_time, working_instance, service_type, mention_text, display_name, channel_data FROM SocialFeed WHERE guild_id = ? AND feed_name = ?",
+                    (ctx.guild.id, feed_name)
+                ) as cursor:
+                    feed = await cursor.fetchone()
 
-        if not feed:
-            embed = discord.Embed(
-                title="❌ Feed Not Found",
-                description=f"No feed found with name `{feed_name}`",
-                color=0xff0000
-            )
-            await ctx.send(embed=embed, ephemeral=True)
-            return
+                if not feed:
+                    embed = discord.Embed(
+                        title="❌ Feed Not Found",
+                        description=f"No feed found with name `{feed_name}`",
+                        color=0xff0000
+                    )
+                    await ctx.send(embed=embed, ephemeral=True)
+                    return
 
-        platform, feed_name, feed_url, last_post_id, last_check_time, working_instance, service_type, mention_text, display_name, channel_data_json = feed
+                platform, feed_name, feed_url, last_post_id, last_check_time, working_instance, service_type, mention_text, display_name, channel_data_json = feed
 
-        # Parse channel data
-        channel_data = None
-        if channel_data_json:
-            try:
-                channel_data = json.loads(channel_data_json)
-            except:
-                pass
+                # Parse channel data
+                channel_data = None
+                if channel_data_json:
+                    try:
+                        channel_data = json.loads(channel_data_json)
+                    except:
+                        pass
 
-        # Use display name if available
-        actual_feed_name = display_name if display_name else feed_name
+                # Use display name if available
+                actual_feed_name = display_name if display_name else feed_name
 
-        # Use fallback system for fetching
-        if platform in ["twitter", "reddit"]:
-            feed_data, new_instance, new_service_type = await self.fetch_feed_with_fallback(feed_url, platform, feed_name, working_instance, service_type)
-        else:
-            headers = self.get_chromium_headers()
-            async with self.session.get(feed_url, timeout=15, headers=headers) as response:
-                if response.status == 200:
-                    text = await response.text()
-                    feed_data = feedparser.parse(text) if any(tag in text.lower() for tag in ['<rss', '<feed', '<?xml', '<![CDATA']) else None
+                if platform == "twitter":
+                    # Use EXACT SAME synchronous approach for Twitter
+                    tweet = await self.fetch_twitter_feed(feed_name)
+                    if not tweet:
+                        embed = discord.Embed(
+                            title="❌ Test Failed",
+                            description="Could not fetch feed or no posts found.",
+                            color=0xff0000
+                        )
+                        await ctx.send(embed=embed, ephemeral=True)
+                        return
+
+                    # Create Twitter message (NO EMBED)
+                    message = f"🧪 **TEST -** " + TwitterMonitor.create_twitter_message(tweet, feed_name)
+                    await ctx.send(message, ephemeral=True)
+
                 else:
-                    feed_data = None
+                    # For YouTube and Reddit, use optimized approach
+                    feed_data, new_instance, new_service_type = await self.fetch_feed_with_fallback(feed_url, platform, feed_name, working_instance, service_type)
 
-        if not feed_data or not feed_data.entries:
+                    if not feed_data or not feed_data.entries:
+                        embed = discord.Embed(
+                            title="❌ Test Failed",
+                            description="Could not fetch feed or no posts found.",
+                            color=0xff0000
+                        )
+                        await ctx.send(embed=embed, ephemeral=True)
+                        return
+
+                    latest_post = feed_data.entries[0]
+
+                    # Quick media extraction
+                    media_urls, direct_video_urls = self.extract_media_urls(platform, latest_post)
+
+                    # Quick description cleaning
+                    description = getattr(latest_post, 'summary', getattr(latest_post, 'description', ''))
+                    clean_description = self.clean_html_content(description)
+
+                    post_data = {
+                        'title': latest_post.title[:200] + "..." if len(latest_post.title) > 200 else latest_post.title,
+                        'link': latest_post.link,
+                        'summary': clean_description[:500] + "..." if len(clean_description) > 500 else clean_description,
+                        'description': clean_description[:500] + "..." if len(clean_description) > 500 else clean_description,
+                        'published': getattr(latest_post, 'published_parsed', None),
+                        'media_urls': media_urls,
+                        'direct_video_urls': direct_video_urls
+                    }
+
+                    embed = self.create_post_embed(platform, actual_feed_name, post_data, channel_data, is_test=True)
+
+                    # Get first direct video URL for play button
+                    direct_video_url = direct_video_urls[0] if direct_video_urls else None
+
+                    # Create view with watch button and play button if available
+                    view = WatchButton(post_data['link'], platform, direct_video_url)
+                    await ctx.send(embed=embed, view=view, ephemeral=True)
+
+        except asyncio.TimeoutError:
             embed = discord.Embed(
-                title="❌ Test Failed",
-                description="Could not fetch feed or no posts found.",
+                title="⏰ Timeout Error",
+                description="The operation took too long. Please try again later.",
                 color=0xff0000
             )
             await ctx.send(embed=embed, ephemeral=True)
-            return
-
-        latest_post = feed_data.entries[0]
-
-        # Extract media URLs including direct video URLs
-        media_urls, direct_video_urls = self.extract_media_urls(platform, latest_post)
-
-        # Clean description
-        description = getattr(latest_post, 'summary', getattr(latest_post, 'description', ''))
-        clean_description = self.clean_html_content(description)
-
-        post_data = {
-            'title': latest_post.title,
-            'link': latest_post.link,
-            'summary': clean_description,
-            'description': clean_description,
-            'published': getattr(latest_post, 'published_parsed', None),
-            'media_thumbnail': getattr(latest_post, 'media_thumbnail', None),
-            'media_content': getattr(latest_post, 'media_content', None),
-            'media_urls': media_urls,
-            'direct_video_urls': direct_video_urls
-        }
-
-        embed = self.create_post_embed(platform, actual_feed_name, post_data, channel_data, is_test=True)
-
-        # Add service information
-        if platform in ["twitter", "reddit"]:
-            current_service_type = new_service_type if new_service_type else service_type
-            current_instance = new_instance if new_instance else working_instance
-
-            if platform == "twitter":
-                services = self.get_twitter_services()
-            else:
-                services = self.get_reddit_services()
-
-            service_info = services.get(current_service_type, {})
-            embed.add_field(
-                name="🌐 Service",
-                value=f"{service_info.get('emoji', '🔗')} **{service_info.get('name', 'Unknown')}**\n`{current_instance}`",
-                inline=True
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ Error",
+                description=f"An error occurred: {str(e)}",
+                color=0xff0000
             )
-
-        # Add mention information
-        if mention_text:
-            embed.add_field(
-                name="🔔 Mentions",
-                value=mention_text,
-                inline=True
-            )
-
-        if last_check_time:
-            if isinstance(last_check_time, str):
-                try:
-                    last_check_time = datetime.fromisoformat(last_check_time.replace('Z', '+00:00'))
-                except:
-                    last_check_time = None
-
-            if last_check_time and hasattr(last_check_time, 'timestamp'):
-                embed.add_field(
-                    name="⏰ Last Checked",
-                    value=f"<t:{int(last_check_time.timestamp())}:R>",
-                    inline=True
-                )
-
-        embed.add_field(
-            name="🆔 Current Post ID",
-            value=f"`{last_post_id[:20]}...`" if last_post_id and len(last_post_id) > 20 else f"`{last_post_id}`",
-            inline=True
-        )
-
-        # Get first direct video URL for play button
-        direct_video_url = direct_video_urls[0] if direct_video_urls else None
-
-        # Create view with watch button and play button if available
-        view = WatchButton(post_data['link'], platform, direct_video_url)
-        await ctx.send(embed=embed, view=view, ephemeral=True)
+            await ctx.send(embed=embed, ephemeral=True)
 
     @commands.hybrid_command(name="socialfeed_remove", description="Remove a social media feed")
     @blacklist_check()
@@ -1554,7 +1638,7 @@ class SocialFeed(commands.Cog):
                 return
 
             embed = discord.Embed(
-                title=f"📰 Your Social Feeds",
+                title=f"📰 Your Social Feeds ({len(rows)} total)",
                 color=NEPAL_BLUE,
                 timestamp=datetime.utcnow()
             )
@@ -1563,16 +1647,29 @@ class SocialFeed(commands.Cog):
                 platform_emojis = {"twitter": "🐦", "youtube": "📺", "reddit": "🤖"}
                 emoji = platform_emojis.get(platform, "📰")
 
-                # Use display name if available
+                # Use display name if available, otherwise use feed name
                 actual_display_name = display_name if display_name else feed_name
+
+                # Create field value with both names
+                field_value = f"**Platform:** {platform.title()}\n"
+                field_value += f"**Feed Name:** `{feed_name}`\n"
+                if display_name and display_name != feed_name:
+                    field_value += f"**Display Name:** `{display_name}`\n"
+                field_value += f"**Channel:** <#{channel_id}>"
+
+                if service_type:
+                    field_value += f"\n**Service:** {service_type}"
+
+                if mention_text:
+                    field_value += f"\n**Mentions:** {len(mention_text.split())} role(s)"
 
                 embed.add_field(
                     name=f"{emoji} {actual_display_name}",
-                    value=f"**Platform:** {platform.title()}\n**Channel:** <#{channel_id}>",
-                    inline=True
+                    value=field_value,
+                    inline=False
                 )
 
-            embed.set_footer(text=f"📊 Total feeds: {len(rows)} • 🔄 Updates every 60 seconds")
+            embed.set_footer(text="🔄 Updates every 3 minutes • Use /socialfeed_remove to delete feeds")
             await ctx.send(embed=embed, ephemeral=True)
 
         except Exception as e:
