@@ -36,3 +36,5 @@ chess
 python-dateutil
 deep-translator
 feedparser
+snscrape
+TikTokApi
