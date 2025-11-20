@@ -3,9 +3,54 @@ from discord.ext import commands
 from discord import app_commands
 import asyncio
 import io
+import json
+import aiosqlite
+import os
 
 DEFAULT_COLOR = 0xea0a37
-ticket_counter = 0
+
+# ─────────────────────────────
+# Database for persistence
+# ─────────────────────────────
+class TicketDB:
+    def __init__(self):
+        self.db_folder = 'db'
+        self.db_file = 'tickets.db'
+        self.db_path = os.path.join(self.db_folder, self.db_file)
+
+        # Create db folder if it doesn't exist
+        if not os.path.exists(self.db_folder):
+            os.makedirs(self.db_folder)
+
+    async def init_db(self):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS ticket_counters (
+                    guild_id INTEGER PRIMARY KEY,
+                    counter INTEGER DEFAULT 0
+                )
+            ''')
+            await db.commit()
+
+    async def get_ticket_counter(self, guild_id: int) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute('SELECT counter FROM ticket_counters WHERE guild_id = ?', (guild_id,)) as cursor:
+                result = await cursor.fetchone()
+                if result:
+                    return result[0]
+                else:
+                    await db.execute('INSERT INTO ticket_counters (guild_id, counter) VALUES (?, 0)', (guild_id,))
+                    await db.commit()
+                    return 0
+
+    async def increment_ticket_counter(self, guild_id: int) -> int:
+        counter = await self.get_ticket_counter(guild_id)
+        counter += 1
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute('INSERT OR REPLACE INTO ticket_counters (guild_id, counter) VALUES (?, ?)', (guild_id, counter))
+            await db.commit()
+        return counter
+
 
 # ─────────────────────────────
 # Embed Editor Modal
@@ -153,7 +198,6 @@ class TicketSetupView(discord.ui.View):
             await self.send_panel(interaction)
 
     async def send_panel(self, interaction: discord.Interaction):
-        global ticket_counter
         if not self.channel:
             await interaction.response.send_message("❌ Please set a channel first.", ephemeral=True)
             return
@@ -171,7 +215,6 @@ class TicketSetupView(discord.ui.View):
         )
 
         async def ticket_callback(i: discord.Interaction):
-            global ticket_counter
             label = i.data["values"][0]
             option = next((opt for opt in self.options if opt["label"] == label), None)
             if not option:
@@ -179,7 +222,7 @@ class TicketSetupView(discord.ui.View):
                 return
 
             staff_role = i.guild.get_role(option["staff_role"])
-            ticket_counter += 1
+            ticket_counter = await self.bot.ticket_db.increment_ticket_counter(i.guild.id)
             overwrites = {
                 i.guild.default_role: discord.PermissionOverwrite(view_channel=False),
                 i.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
@@ -188,7 +231,7 @@ class TicketSetupView(discord.ui.View):
                 overwrites[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
 
             ticket_channel = await i.guild.create_text_channel(
-                name=f"{label.lower()}-{ticket_counter}",
+                name=f"{label.lower().replace(' ', '-')}-{ticket_counter}",
                 overwrites=overwrites,
                 reason="New Support Ticket"
             )
@@ -199,7 +242,7 @@ class TicketSetupView(discord.ui.View):
                 color=DEFAULT_COLOR
             )
 
-            view = TicketView(i.user)
+            view = TicketView(i.user, self.bot)
             await ticket_channel.send(content=f"{i.user.mention} {staff_role.mention if staff_role else ''}", embed=ticket_embed, view=view)
             await i.response.send_message(f"✅ Ticket created: {ticket_channel.mention}", ephemeral=True)
 
@@ -214,9 +257,10 @@ class TicketSetupView(discord.ui.View):
 # Ticket Interaction Views
 # ─────────────────────────────
 class TicketView(discord.ui.View):
-    def __init__(self, creator):
+    def __init__(self, creator, bot):
         super().__init__(timeout=None)
         self.creator = creator
+        self.bot = bot
         self.claimed = False
 
     @discord.ui.button(label="📌 Claim", style=discord.ButtonStyle.primary)
@@ -230,14 +274,15 @@ class TicketView(discord.ui.View):
 
     @discord.ui.button(label="❌ Close", style=discord.ButtonStyle.danger)
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Choose an action:", view=CloseOptionsView(interaction.channel, self.creator), ephemeral=True)
+        await interaction.response.send_message("Choose an action:", view=CloseOptionsView(interaction.channel, self.creator, self.bot), ephemeral=True)
 
 
 class CloseOptionsView(discord.ui.View):
-    def __init__(self, channel, creator):
+    def __init__(self, channel, creator, bot):
         super().__init__()
         self.channel = channel
         self.creator = creator
+        self.bot = bot
 
     @discord.ui.button(label="📄 Transcript", style=discord.ButtonStyle.secondary)
     async def transcript(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -258,6 +303,10 @@ class CloseOptionsView(discord.ui.View):
 class TicketSystem(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.bot.ticket_db = TicketDB()
+
+    async def cog_load(self):
+        await self.bot.ticket_db.init_db()
 
     @app_commands.command(name="ticketsetup", description="Create and configure a custom ticket panel")
     async def ticketsetup(self, interaction: discord.Interaction):
