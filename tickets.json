@@ -1,0 +1,24 @@
+{
+    "panels": [
+        {
+            "guild_id": 1312335835730939904,
+            "channel_id": 1394342863839428668,
+            "message_id": 1441302186255450145,
+            "embed": {
+                "title": "\ud83c\udfab Need Help? We're Here for You!",
+                "description": "If you're experiencing an issue, need support, or want to talk to the team privately, you can open a confidential support ticket by clicking the button below.\n\n\ud83d\udee1\ufe0f Your privacy is our priority \u2013 only you and our support team will be able to view the conversation inside your ticket.\n\n\u2705 Use this system for:\n\u2022 Questions or general help\n\u2022 Reporting issues or bugs\n\u2022 Private conversations with staff\n\u2022 Any other support-related needs\n\n\ud83d\udccc To open a ticket, simply click the Create Ticket button below. A private channel will be created just for you.\n\n\ud83d\udcdd Once your ticket is open, please explain your situation clearly so we can help you as fast and efficiently as possible.",
+                "image": "https://cdn.discordapp.com/attachments/1312336278368292928/1312358193967665162/download-2024-08-19T210821.492.jpeg"
+            },
+            "options": [
+                {
+                    "label": "General",
+                    "staff_role": []
+                }
+            ]
+        }
+    ],
+    "tickets": [],
+    "ticket_counter": {
+        "1312335835730939904": 6
+    }
+}
